@@ -1,0 +1,17 @@
+[package]
+version = "0.1.0"
+category = "isaaclab"
+title = "Moma Lab"
+author = "Moma Lab"
+maintainer = "Moma Lab"
+description = "Unitree Go2W rough-terrain velocity task based on Isaac Lab."
+keywords = ["extension", "moma_lab", "isaaclab", "unitree", "go2w"]
+
+[dependencies]
+"isaaclab" = {}
+"isaaclab_rl" = {}
+"isaaclab_tasks" = {}
+
+[[python.module]]
+name = "moma_lab"
+

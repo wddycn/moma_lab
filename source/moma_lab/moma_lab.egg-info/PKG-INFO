@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: moma_lab
+Version: 0.1.0
+Summary: Focused Unitree Go2W locomotion extension for Isaac Lab
+Requires-Python: >=3.10
+Requires-Dist: gymnasium
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
