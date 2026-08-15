@@ -164,3 +164,17 @@ class UnitreeGo2RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         # self.commands.base_velocity.ranges.lin_vel_x = (-1.0, 1.0)
         # self.commands.base_velocity.ranges.lin_vel_y = (-0.5, 0.5)
         # self.commands.base_velocity.ranges.ang_vel_z = (-1.0, 1.0)
+
+
+@configclass
+class UnitreeGo2HIMEnvCfg(UnitreeGo2RoughEnvCfg):
+    """Go2 environment with the observation contract required by HIMLoco."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        from moma_lab.tasks.manager_based.locomotion.velocity.himloco_env_cfg import (
+            configure_himloco_observations,
+        )
+
+        configure_himloco_observations(self, self.joint_names)
+        self.disable_zero_weight_rewards()

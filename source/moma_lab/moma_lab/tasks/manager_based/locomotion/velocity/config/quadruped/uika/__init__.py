@@ -14,3 +14,13 @@ gym.register(
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UikaRoughPPORunnerCfg",
     },
 )
+
+gym.register(
+    id="RobotLab-Isaac-Velocity-Rough-Uika-HIMLoco-v0",
+    entry_point="moma_lab.envs:HimlocoManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.rough_env_cfg:UikaHIMEnvCfg",
+        "himloco_rsl_rl_cfg": "moma_lab.himloco_cfg:UikaHIMRunnerCfg",
+    },
+)

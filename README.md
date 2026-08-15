@@ -217,6 +217,7 @@ MY_ROBOT_CFG = ArticulationCfg(
 - `stiffness` 和 `damping`：PD 参数。
 
 初始高度过低会穿地，过高会在初始化时掉下来。默认关节角不正确会导致机器人一生成就趴下。
+
 ---
 
 ## 3. 创建机器人环境配置
@@ -527,5 +528,60 @@ python scripts/reinforcement_learning/rsl_rl/train.py \
 ```bash
 python scripts/reinforcement_learning/rsl_rl/train.py \
   --task RobotLab-Isaac-Velocity-Rough-MyRobot-v0 \
+  --headless
+```
+
+---
+
+## 8. HIMLoco 训练
+
+Go2 和 Uika 均保留原来的 RSL-RL PPO 任务，并各自新增一个 HIMLoco 任务。HIMLoco 使用 6 帧
+本体感知历史（当前帧加 5 帧历史）、速度估计器、16 维潜变量和特权 critic。
+
+先做小规模冒烟训练：
+
+```bash
+python scripts/reinforcement_learning/himloco/train.py \
+  --task RobotLab-Isaac-Velocity-Rough-Unitree-Go2-HIMLoco-v0 \
+  --num_envs 16 --max_iterations 2 --headless
+
+python scripts/reinforcement_learning/himloco/train.py \
+  --task RobotLab-Isaac-Velocity-Rough-Uika-HIMLoco-v0 \
+  --num_envs 16 --max_iterations 2 --headless
+```
+
+确认没有维度、NaN 或 CUDA 错误后，移除 `--num_envs` 和 `--max_iterations` 进行正式训练。
+HIMLoco 日志分别写入：
+
+```text
+logs/himloco_rsl_rl/go2_himloco/
+logs/himloco_rsl_rl/uika_himloco/
+```
+
+原有任务和训练命令不变，例如：
+
+```bash
+python scripts/reinforcement_learning/rsl_rl/train.py \
+  --task RobotLab-Isaac-Velocity-Rough-Unitree-Go2-v0 --headless
+```
+# 中断、继续训练
+### 1.中断
+在训练中可以直接 ctrl+c 进行中断
+### 2.导出/查看最新策略
+```bash
+python scripts/reinforcement_learning/himloco/play.py \
+  --task RobotLab-Isaac-Velocity-Rough-Uika-HIMLoco-v0 \
+  --num_envs 1 \
+  --checkpoint /完整路径/model_1000.pt
+```
+### 3.继续训练
+max_iterations = 20000-2900=17100
+```bash
+python scripts/reinforcement_learning/himloco/train.py \
+  --task RobotLab-Isaac-Velocity-Rough-Uika-HIMLoco-v0 \
+  --resume \
+  --load_run 2026-08-15_12-51-55 \
+  --checkpoint model_2900.pt \
+  --max_iterations 17100 \
   --headless
 ```
