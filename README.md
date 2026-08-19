@@ -585,3 +585,57 @@ python scripts/reinforcement_learning/himloco/train.py \
   --max_iterations 17100 \
   --headless
 ```
+
+
+# 奖励函数分两层：
+
+## 1. **奖励函数实现在哪里**
+
+真正的函数代码在这里：
+
+```bash
+/home/mglf/rc/moma_lab/source/moma_lab/moma_lab/tasks/manager_based/locomotion/velocity/mdp/rewards.py
+```
+
+比如这些函数都在这个文件里：
+
+```python
+track_lin_vel_xy_exp
+track_ang_vel_z_exp
+feet_slide
+feet_gait
+joint_pos_penalty
+feet_air_without_cmd
+```
+
+## 2. **uika 用哪些奖励、权重是多少**
+
+uika 的权重配置在这里：
+
+```bash
+/home/mglf/rc/moma_lab/source/moma_lab/moma_lab/tasks/manager_based/locomotion/velocity/config/quadruped/uika/rough_env_cfg.py
+```
+
+主要看 `# ------------------------------Rewards------------------------------` 下面这一段，例如：
+
+```python
+self.rewards.track_lin_vel_xy_exp.weight = 1.2
+self.rewards.track_ang_vel_z_exp.weight = 0.6
+self.rewards.feet_slide.weight = -0.1
+self.rewards.feet_gait.weight = 0.0
+self.rewards.joint_mirror = None
+```
+
+还有一份基础默认奖励配置在：
+
+```bash
+/home/mglf/rc/moma_lab/source/moma_lab/moma_lab/tasks/manager_based/locomotion/velocity/velocity_env_cfg.py
+```
+
+你可以这样快速找：
+
+```bash
+rg -n "track_lin_vel_xy_exp|track_ang_vel_z_exp|feet_gait|joint_mirror|Rewards" /home/mglf/rc/moma_lab/source/moma_lab/moma_lab/tasks/manager_based/locomotion/velocity
+```
+
+一般你要调 uika，优先改 `uika/rough_env_cfg.py` 里的权重；只有要新增一种奖励计算方式时，才去改 `mdp/rewards.py`。

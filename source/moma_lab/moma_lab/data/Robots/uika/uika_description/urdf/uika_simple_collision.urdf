@@ -481,4 +481,11 @@
     <child link="RR_foot" />
     <axis xyz="0 0 0" />
   </joint>
+  <link name="mid360_link">
+  </link>
+  <joint name="mid360_joint" type="fixed">
+      <parent link="base"/>
+      <child link="mid360_link"/>
+      <origin xyz="0.33 0 -0.08" rpy="0 2.5 0"/>
+  </joint>
 </robot>

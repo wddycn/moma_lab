@@ -49,6 +49,40 @@ def randomize_actuator_group_parameters(
     )
 
 
+def apply_periodic_external_force_torque(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor | None,
+    period_step: int,
+    force_range: tuple[float, float],
+    torque_range: tuple[float, float],
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+):
+    """Apply a random persistent wrench every ``period_step`` event calls."""
+    if not hasattr(env, "external_force_call_count") or env.external_force_call_count is None:
+        env.external_force_call_count = 0
+
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+    if env_ids is None:
+        env_ids = torch.arange(env.scene.num_envs, device=asset.device)
+
+    num_bodies = len(asset_cfg.body_ids) if isinstance(asset_cfg.body_ids, list) else asset.num_bodies
+    shape = (len(env_ids), num_bodies, 3)
+    if env.external_force_call_count % period_step == 0:
+        forces = math_utils.sample_uniform(*force_range, shape, asset.device)
+        torques = math_utils.sample_uniform(*torque_range, shape, asset.device)
+    else:
+        forces = torch.zeros(shape, device=asset.device)
+        torques = torch.zeros(shape, device=asset.device)
+
+    asset.permanent_wrench_composer.set_forces_and_torques(
+        forces=forces,
+        torques=torques,
+        env_ids=env_ids,
+        body_ids=asset_cfg.body_ids,
+    )
+    env.external_force_call_count += 1
+
+
 def randomize_rigid_body_inertia(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor | None,

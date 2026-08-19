@@ -9,9 +9,28 @@ import torch
 
 from isaaclab.assets import Articulation
 from isaaclab.managers import SceneEntityCfg
+from isaaclab.sensors import RayCaster
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv, ManagerBasedRLEnv
+
+
+def base_external_force(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Return the composed persistent external force acting on the selected body."""
+    asset: Articulation = env.scene[asset_cfg.name]
+    return asset.permanent_wrench_composer.composed_force_as_torch[:, asset_cfg.body_ids, :].squeeze(1).clone()
+
+
+def height_scan_clip(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    clip: tuple[float, float] = (-1.0, 1.0),
+    offset: float = 0.5,
+) -> torch.Tensor:
+    """Return terrain heights relative to the sensor, offset and clipped."""
+    sensor: RayCaster = env.scene.sensors[sensor_cfg.name]
+    height = sensor.data.pos_w[:, 2].unsqueeze(1) - sensor.data.ray_hits_w[..., 2] - offset
+    return torch.clip(height, clip[0], clip[1])
 
 
 def joint_pos_rel_without_wheel(

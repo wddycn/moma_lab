@@ -119,14 +119,9 @@ class HimlocoVecEnvWrapper(VecEnv):
             self.privileged_obs_history_buf = None
             self._termination_privileged_obs = None
         
-        # Reset and seed every history slot with the initial observation. Starting
-        # with an all-zero history creates an artificial transient for the estimator.
-        initial_obs, _ = self.env.reset()
-        policy_obs = initial_obs["policy"]
-        self.obs_history_buf = policy_obs.repeat(1, self.history_length + 1)
-        if self.privileged_obs_history_buf is not None:
-            critic_obs = initial_obs["critic"]
-            self.privileged_obs_history_buf = critic_obs.repeat(1, self.privileged_history_length + 1)
+        # Match the original UIKA HIMLoco history contract: the runner does not
+        # call reset, and past-history slots start at zero and fill over time.
+        self.env.reset()
 
     def __str__(self):
         """Returns the wrapper name and the :attr:`env` representation string."""

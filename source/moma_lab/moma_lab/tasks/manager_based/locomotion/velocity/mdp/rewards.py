@@ -256,7 +256,12 @@ class GaitReward(ManagerTermBase):
         return torch.exp(-(se_act_0 + se_act_1) / self.std)
 
 
-def joint_mirror(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, mirror_joints: list[list[str]]) -> torch.Tensor:
+def joint_mirror(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg,
+    mirror_joints: list[list[str]],
+    use_default_offset: bool = False,
+) -> torch.Tensor:
     # extract the used quantities (to enable type-hinting)
     asset: Articulation = env.scene[asset_cfg.name]
     if not hasattr(env, "joint_mirror_joints_cache") or env.joint_mirror_joints_cache is None:
@@ -265,11 +270,14 @@ def joint_mirror(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, mirror_joint
             [asset.find_joints(joint_name) for joint_name in joint_pair] for joint_pair in mirror_joints
         ]
     reward = torch.zeros(env.num_envs, device=env.device)
+    joint_pos = asset.data.joint_pos
+    if use_default_offset:
+        joint_pos = joint_pos - asset.data.default_joint_pos
     # Iterate over all joint pairs
     for joint_pair in env.joint_mirror_joints_cache:
         # Calculate the difference for each pair and add to the total reward
         diff = torch.sum(
-            torch.square(asset.data.joint_pos[:, joint_pair[0][0]] - asset.data.joint_pos[:, joint_pair[1][0]]),
+            torch.square(joint_pos[:, joint_pair[0][0]] - joint_pos[:, joint_pair[1][0]]),
             dim=-1,
         )
         reward += diff
@@ -358,6 +366,22 @@ def feet_air_time(
     reward *= torch.norm(env.command_manager.get_command(command_name), dim=1) > 0.1
     reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
     return reward
+
+
+def prolonged_swing(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    max_swing_time: float = 0.6,
+    command_name: str = "base_velocity",
+) -> torch.Tensor:
+    """Penalize feet that remain airborne beyond a normal swing window while moving."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    air_time = contact_sensor.data.current_air_time[:, sensor_cfg.body_ids]
+    excess = torch.clamp(air_time - max_swing_time, min=0.0)
+    penalty = torch.sum(torch.square(excess), dim=1)
+    penalty *= torch.linalg.norm(env.command_manager.get_command(command_name)[:, :2], dim=1) > 0.1
+    penalty *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
+    return penalty
 
 
 def feet_air_time_positive_biped(env, command_name: str, threshold: float, sensor_cfg: SceneEntityCfg) -> torch.Tensor:

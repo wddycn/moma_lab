@@ -54,10 +54,16 @@ class HIMCriticCfg(HIMPolicyCfg):
     """Policy observation followed immediately by estimator velocity target."""
 
     base_lin_vel = ObsTerm(func=mdp.base_lin_vel, scale=2.0, clip=(-100.0, 100.0))
+    base_external_force = ObsTerm(
+        func=mdp.base_external_force,
+        params={"asset_cfg": SceneEntityCfg("robot", body_names="base")},
+        clip=(-100.0, 100.0),
+    )
     height_scan = ObsTerm(
-        func=mdp.height_scan,
+        func=mdp.height_scan_clip,
         params={"sensor_cfg": SceneEntityCfg("height_scanner")},
-        clip=(-1.0, 1.0),
+        scale=5.0,
+        clip=(-100.0, 100.0),
         noise=Unoise(n_min=-0.1, n_max=0.1),
     )
 

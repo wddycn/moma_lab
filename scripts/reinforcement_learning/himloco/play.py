@@ -82,6 +82,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg: HIMOnPolicyRunnerCfg):
         env_cfg.observations.policy.enable_corruption = False
     _disable_if_present(getattr(env_cfg, "events", None), "randomize_apply_external_force_torque")
     _disable_if_present(getattr(env_cfg, "events", None), "push_robot")
+    _disable_if_present(getattr(env_cfg, "events", None), "randomize_push_robot")
+    _disable_if_present(getattr(env_cfg, "events", None), "external_force")
     _disable_if_present(getattr(env_cfg, "curriculum", None), "command_levels_lin_vel")
     _disable_if_present(getattr(env_cfg, "curriculum", None), "command_levels_ang_vel")
 
