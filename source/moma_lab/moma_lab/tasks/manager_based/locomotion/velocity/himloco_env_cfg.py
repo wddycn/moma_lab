@@ -44,6 +44,21 @@ class HIMPolicyCfg(ObsGroup):
     )
     actions = ObsTerm(func=mdp.last_action, clip=(-100.0, 100.0))
 
+    mid360_height_map = ObsTerm(
+        func=mdp.mid360_height_map,
+        params={
+            "sensor_cfg": SceneEntityCfg("mid360_height_scanner"),
+            "clip": (-0.5, 0.5),
+        },
+        scale=2.0,
+        clip=(-1.0, 1.0),
+
+        # 第一版建议加入轻微高度噪声。
+        # 注意 noise 在 scale 前后如何应用需要以 ObservationManager
+        # 当前版本实现为准，数值不要一开始设得太大。
+        noise=Unoise(n_min=-0.02, n_max=0.02),
+    )
+
     def __post_init__(self):
         self.enable_corruption = True
         self.concatenate_terms = True

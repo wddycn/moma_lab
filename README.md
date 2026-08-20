@@ -639,3 +639,264 @@ rg -n "track_lin_vel_xy_exp|track_ang_vel_z_exp|feet_gait|joint_mirror|Rewards" 
 ```
 
 一般你要调 uika，优先改 `uika/rough_env_cfg.py` 里的权重；只有要新增一种奖励计算方式时，才去改 `mdp/rewards.py`。
+
+
+# UIKA + MID360 前方地形高程扫描
+
+UIKA 的 HIMLoco 任务可以将 MID360 点云预处理后的前方局部高程图作为策略输入。训练中不直接输入
+原始点云，而是使用 Isaac Lab `RayCasterCfg + GridPatternCfg` 生成固定大小的规则高程采样：
+
+```text
+仿真：规则向下射线 → 地形命中高度 → 143 维局部高程图 → HIMLoco actor
+实机：MID360 点云 → 转换到 base 坐标系 → ROI 裁剪和栅格化 → 同样的 143 维输入
+```
+
+这里模拟的是“由 MID360 点云生成的地形高程图”，不是 MID360 的完整 360° 激光光束。
+
+## 1. URDF 和资产配置
+
+训练实际使用的 UIKA URDF 是：
+
+```text
+source/moma_lab/moma_lab/data/Robots/uika/uika_description/urdf/uika_simple_collision.urdf
+```
+
+其中需要存在固定安装的 `mid360_link`：
+
+```xml
+<link name="mid360_link"/>
+<joint name="mid360_joint" type="fixed">
+  <parent link="base"/>
+  <child link="mid360_link"/>
+  <origin xyz="0.33 0 -0.08" rpy="0 2.5 0"/>
+</joint>
+```
+
+UIKA 资产配置位于：
+
+```text
+source/moma_lab/moma_lab/assets/uika.py
+```
+
+为了让固定的 `mid360_link` 在导入后仍可作为 RayCaster 挂载对象，需要保留：
+
+```python
+merge_fixed_joints=False
+```
+
+修改 URDF 后应删除或刷新对应的 URDF 转换缓存，确保 Isaac Sim 使用的是最新模型。
+
+## 2. 配置前方高程扫描器
+
+场景传感器定义位于：
+
+```text
+source/moma_lab/moma_lab/tasks/manager_based/locomotion/velocity/velocity_env_cfg.py
+```
+
+当前配置为：
+
+```python
+mid360_height_scanner = RayCasterCfg(
+    prim_path="{ENV_REGEX_NS}/Robot/mid360_link",
+    offset=RayCasterCfg.OffsetCfg(
+        pos=(0.05, 0.0, 0.0),
+    ),
+    ray_alignment="yaw",
+    pattern_cfg=patterns.GridPatternCfg(
+        resolution=0.1,
+        size=(1.2, 1.0),
+        direction=(0.0, 0.0, -1.0),
+        ordering="xy",
+    ),
+    mesh_prim_paths=["/World/ground"],
+    debug_vis=False,
+)
+```
+
+参数含义：
+
+- `prim_path`：扫描器随 `mid360_link` 的世界位置移动。
+- `offset.pos`：相对 `mid360_link` 的传感器偏移，不是相对地面的坐标。
+- `ray_alignment="yaw"`：规则网格只按挂载 link 的 yaw 旋转，不随 roll/pitch 倾斜。
+- `size=(1.2, 1.0)`：矩形长 1.2 m、宽 1.0 m。
+- `resolution=0.1`：采样间距 0.1 m。
+- `direction=(0, 0, -1)`：当前 yaw 模式下射线沿世界坐标系竖直向下。
+- `mesh_prim_paths`：当前只扫描 `/World/ground` 地形，不扫描独立动态物体。
+
+采样点数包含矩形首尾边界：
+
+```text
+(1.2 / 0.1 + 1) × (1.0 / 0.1 + 1) = 13 × 11 = 143
+```
+
+注意，UIKA URDF 中 `mid360_link` 带有较大的 pitch。欧拉角等价表示可能使 Isaac Lab 从该 link
+姿态提取出的 yaw 相差约 180°，因此 `offset.x` 的正方向不一定对应机器人 base 的前方。调整扫描位置时
+必须以调试可视化结果为准。如果希望正 X 始终明确表示机器人前方，可以把虚拟高程扫描器挂在 `base`，
+实机点云仍通过 TF 从 `mid360_link` 转换到 `base` 后再栅格化。
+
+`offset.z=0` 表示射线网格与 `mid360_link` 原点处于相同高度。它不会改变矩形长宽和采样数量，
+但如果某段地形高于射线起点，竖直向下的射线可能无法命中。出现高台阶采样点大量消失时，可将
+虚拟射线起点抬高，例如：
+
+```python
+offset=RayCasterCfg.OffsetCfg(pos=(0.05, 0.0, 0.5))
+```
+
+这只是提高虚拟高程射线的起点，不表示真实 MID360 安装在 link 上方 0.5 m。
+
+## 3. 在 UIKA 环境中绑定和更新传感器
+
+UIKA 环境配置位于：
+
+```text
+source/moma_lab/moma_lab/tasks/manager_based/locomotion/velocity/config/quadruped/uika/rough_env_cfg.py
+```
+
+在 `UikaRoughEnvCfg.__post_init__()` 中配置：
+
+```python
+self.scene.mid360_height_scanner.prim_path = (
+    "{ENV_REGEX_NS}/Robot/mid360_link"
+)
+self.scene.mid360_height_scanner.update_period = (
+    self.decimation * self.sim.dt
+)
+```
+
+这样扫描器会按照策略控制周期更新。若把扫描器改挂到 `base`，这里的 `prim_path` 也必须同步修改。
+
+## 4. 将射线命中点转换成高程观测
+
+观测函数位于：
+
+```text
+source/moma_lab/moma_lab/tasks/manager_based/locomotion/velocity/mdp/observations.py
+```
+
+`mid360_height_map()` 执行以下处理：
+
+```text
+地形命中点世界高度
+→ 计算相对 base 的高度差
+→ 减去 UIKA 平地站立高度 0.33 m
+→ 将未命中的 NaN/Inf 转换为有限边界值
+→ 裁剪到 [-0.5, 0.5]
+```
+
+当前约定是：平地接近 0，坑洼趋向正值，凸起或台阶趋向负值。实机预处理必须使用相同的符号、
+裁剪范围和数组展开顺序。
+
+## 5. 加入 HIMLoco actor observation
+
+HIMLoco 观测配置位于：
+
+```text
+source/moma_lab/moma_lab/tasks/manager_based/locomotion/velocity/himloco_env_cfg.py
+```
+
+在 `HIMPolicyCfg` 中加入：
+
+```python
+mid360_height_map = ObsTerm(
+    func=mdp.mid360_height_map,
+    params={
+        "sensor_cfg": SceneEntityCfg("mid360_height_scanner"),
+        "clip": (-0.5, 0.5),
+    },
+    scale=2.0,
+    clip=(-1.0, 1.0),
+    noise=Unoise(n_min=-0.02, n_max=0.02),
+)
+```
+
+该项位于 `HIMPolicyCfg`，所以 actor 能看到高程图；`HIMCriticCfg` 继承 policy，并继续使用原有的
+特权速度、外力和较大范围地形扫描。wrapper 会自动读取新维度，不需要手动填写神经网络输入维数。
+
+当前 UIKA 单步 policy observation 预计为 188 维：
+
+```text
+速度指令 3 + 角速度 3 + 重力投影 3
++ 关节位置 12 + 关节速度 12 + 上一步动作 12
++ MID360 高程 143
+= 188
+```
+
+HIMLoco 使用当前帧加 5 帧历史，因此 actor history 输入总维数预计为：
+
+```text
+188 × 6 = 1128
+```
+
+加入高程图后旧 checkpoint 的输入层尺寸不匹配，首次训练不要使用 `--resume`。如需复用旧模型，
+必须实现部分权重迁移并跳过 actor 第一层及 estimator 输入层。
+
+## 6. 可视化扫描范围
+
+不加载 checkpoint、只查看扫描范围：
+
+```bash
+conda activate moma_lab
+cd /path/to/moma_lab
+
+python scripts/reinforcement_learning/himloco/play.py \
+  --task RobotLab-Isaac-Velocity-Rough-Uika-HIMLoco-v0 \
+  --num_envs 1 \
+  --debug-mid360-only
+```
+
+不要添加 `--headless`。画面中显示的是 143 条垂直射线与地形的命中点，不是完整 MID360 原始点云。
+
+使用已有策略播放并显示扫描点：
+
+```bash
+python scripts/reinforcement_learning/himloco/play.py \
+  --task RobotLab-Isaac-Velocity-Rough-Uika-HIMLoco-v0 \
+  --num_envs 1 \
+  --checkpoint /完整路径/model.pt \
+  --debug-mid360
+```
+
+应重点检查矩形是否位于预期区域、台阶和坡面是否被正确命中，以及是否存在整片未命中点。
+
+## 7. 训练前冒烟测试
+
+正式长时间训练前，先运行 2 个环境和 1 次迭代：
+
+```bash
+python scripts/reinforcement_learning/himloco/train.py \
+  --task RobotLab-Isaac-Velocity-Rough-Uika-HIMLoco-v0 \
+  --num_envs 2 \
+  --max_iterations 1 \
+  --headless
+```
+
+日志应显示：
+
+```text
+num_one_step_obs: 188
+num_obs (total): 1128
+num_actions: 12
+```
+
+确认没有 prim 匹配、NaN/Inf、observation 维度或 CUDA 错误后，再扩大到 1024～4096 个并行环境。
+
+## 8. 实机 MID360 数据对齐
+
+部署时不要直接取点云中的前 143 个点。应执行：
+
+```text
+MID360 PointCloud2
+→ 根据 TF 转换到 base 坐标系
+→ 裁剪与仿真矩形一致的 x/y ROI
+→ 按 0.1 m 分辨率划分 13 × 11 栅格
+→ 每格取地面点 z 的中位数或稳健百分位
+→ 使用与 mid360_height_map() 一致的相对高度和符号
+→ clip 到 [-0.5, 0.5]
+→ 乘 2.0
+→ 严格按照 ordering="xy" 的顺序展平
+→ 拼入策略单步 observation
+```
+
+空栅格不能保留 NaN。第一版可以填固定边界值或邻域插值，后续可增加 validity mask、随机坏点、
+1～2 帧延迟和外参扰动，提高 sim-to-real 鲁棒性。

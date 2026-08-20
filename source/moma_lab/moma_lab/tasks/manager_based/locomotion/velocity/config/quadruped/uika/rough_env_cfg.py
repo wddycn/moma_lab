@@ -196,6 +196,11 @@ class UikaRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.scene.height_scanner_base.pattern_cfg.size = (0.3, 0.4)
         self.scene.terrain.max_init_terrain_level = 0
         self.scene.terrain.physics_material.restitution = 0.0
+        # mid360 配置
+        self.scene.mid360_height_scanner.prim_path = (
+            "{ENV_REGEX_NS}/Robot/mid360_link")
+        self.scene.mid360_height_scanner.update_period = (
+            self.decimation * self.sim.dt)
 
         self.sim.physx.solver_type = 1
         self.sim.physx.max_position_iteration_count = 4

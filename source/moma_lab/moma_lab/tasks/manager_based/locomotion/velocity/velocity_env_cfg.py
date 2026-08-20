@@ -93,6 +93,53 @@ class MySceneCfg(InteractiveSceneCfg):
         ),
     )
 
+    # MID360 前方局部地形高程扫描器
+    #
+    # 说明：
+    # 1. 该传感器不是对真实 MID360 激光束的完整仿真，而是通过规则排列的
+    #    竖直向下射线，将前方地形采样为固定维度的局部高程图，供策略网络使用。
+    #
+    # 2. prim_path 绑定到 mid360_link，扫描器位置会随 mid360_link 移动。
+    #
+    # 3. offset.pos 是相对 mid360_link 的局部位置偏移，不是相对地面：
+    #       x：沿 mid360_link 局部 X 轴偏移
+    #       y：沿 mid360_link 局部 Y 轴偏移
+    #       z：沿 mid360_link 局部 Z 轴偏移
+    #    当前 (0.05, 0.0, 0.0) 表示扫描网格中心沿局部 +X 偏移 0.05 m。
+    #    注意：由于 URDF 中 mid360_link 带有较大的 pitch 旋转，
+    #    局部 X 的正负方向可能与机器人 base 的前后方向不同，应以 debug_vis
+    #    显示出的实际扫描位置为准。
+    #
+    # 4. ray_alignment="yaw" 表示扫描网格的位置排列只跟随 mid360_link
+    #    世界姿态中的 yaw 分量，不随 roll/pitch 倾斜；射线始终竖直向下，
+    #    适合生成以重力方向为基准的地形高程图。
+    #
+    # 5. size=(1.2, 1.0) 表示扫描矩形长 1.2 m、宽 1.0 m；
+    #    resolution=0.1 表示相邻采样点间距为 0.1 m，共产生：
+    #       (1.2 / 0.1 + 1) × (1.0 / 0.1 + 1)
+    #       = 13 × 11
+    #       = 143 个地形采样点。
+    #
+    # 6. direction=(0, 0, -1) 表示所有射线沿世界竖直向下方向投射。
+    #
+    # 7. mesh_prim_paths=["/World/ground"] 表示只检测地形网格，
+    #    不会检测未合并到 /World/ground 的其他独立物体。
+    mid360_height_scanner = RayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/mid360_link",
+        offset=RayCasterCfg.OffsetCfg(
+            pos=(0.05, 0.0, 0.0),
+        ),
+        ray_alignment="yaw",
+        pattern_cfg=patterns.GridPatternCfg(
+            resolution=0.1,
+            size=(1.2, 1.0),
+            direction=(0.0, 0.0, -1.0),# 射线方向：与mid360_link坐标系无关
+            ordering="xy",
+        ),
+        mesh_prim_paths=["/World/ground"],
+        debug_vis=False,
+    )
+
 
 ##
 # MDP settings

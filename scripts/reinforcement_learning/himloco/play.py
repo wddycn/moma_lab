@@ -25,6 +25,18 @@ parser.add_argument(
 parser.add_argument("--num_envs", type=int, default=32, help="Number of environments to simulate.")
 parser.add_argument("--task", type=str, required=True, help="Name of the registered HIMLoco task.")
 parser.add_argument(
+    "--debug-mid360",
+    action="store_true",
+    default=False,
+    help="Visualize the MID360 forward terrain ray-hit points.",
+)
+parser.add_argument(
+    "--debug-mid360-only",
+    action="store_true",
+    default=False,
+    help="Visualize MID360 ray hits with zero actions, without loading a checkpoint.",
+)
+parser.add_argument(
     "--agent", type=str, default="himloco_rsl_rl_cfg", help="Agent configuration registry entry point."
 )
 parser.add_argument("--seed", type=int, default=None, help="Environment seed.")
@@ -32,6 +44,9 @@ parser.add_argument("--real-time", action="store_true", default=False, help="Try
 cli_args.add_himloco_rsl_rl_args(parser)
 AppLauncher.add_app_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
+
+if args_cli.debug_mid360_only:
+    args_cli.debug_mid360 = True
 
 if args_cli.video:
     args_cli.enable_cameras = True
@@ -77,6 +92,18 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg: HIMOnPolicyRunnerCfg):
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
     agent_cfg.device = env_cfg.sim.device
 
+    # RayCaster debug visualization must be enabled before gym.make(), because
+    # the scene and its sensors are constructed when the environment is made.
+    if args_cli.debug_mid360:
+        mid360_scanner = getattr(env_cfg.scene, "mid360_height_scanner", None)
+        if mid360_scanner is None:
+            raise RuntimeError(
+                "--debug-mid360 was requested, but env_cfg.scene has no "
+                "'mid360_height_scanner'. Add the RayCasterCfg to MySceneCfg first."
+            )
+        mid360_scanner.debug_vis = True
+        print("[INFO]: MID360 terrain ray-hit visualization enabled.")
+
     # Evaluation should be repeatable and should not continue training curricula.
     if hasattr(env_cfg.observations, "policy"):
         env_cfg.observations.policy.enable_corruption = False
@@ -95,6 +122,24 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg: HIMOnPolicyRunnerCfg):
             generator.num_rows = min(generator.num_rows, 5)
             generator.num_cols = min(generator.num_cols, 5)
             generator.curriculum = False
+
+    # A checkpoint is unnecessary when only inspecting the scanner footprint.
+    if args_cli.debug_mid360_only:
+        env = gym.make(args_cli.task, cfg=env_cfg)
+        env.reset()
+        action_dim = env.unwrapped.action_manager.total_action_dim
+        actions = torch.zeros((env.unwrapped.num_envs, action_dim), device=env.unwrapped.device)
+        dt = env.unwrapped.step_dt
+        print("[INFO]: Starting checkpoint-free MID360 visualization with zero actions.")
+        while simulation_app.is_running():
+            start_time = time.time()
+            with torch.inference_mode():
+                env.step(actions)
+            sleep_time = dt - (time.time() - start_time)
+            if args_cli.real_time and sleep_time > 0:
+                time.sleep(sleep_time)
+        env.close()
+        return
 
     log_root_path = os.path.abspath(os.path.join("logs", "himloco_rsl_rl", agent_cfg.experiment_name))
     if args_cli.checkpoint:
